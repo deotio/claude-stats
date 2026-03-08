@@ -16,6 +16,29 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claude-stats",
+          "title": "Claude Stats",
+          "icon": "media/icon-activity-bar.svg"
+        }
+      ]
+    },
+    "views": {
+      "claude-stats": [
+        {
+          "id": "claude-stats.dashboardView",
+          "name": "Dashboard"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "claude-stats.dashboardView",
+        "contents": "View your Claude Code usage statistics.\n[Open Dashboard](command:claude-stats.openDashboard)"
+      }
+    ],
     "commands": [
       {
         "command": "claude-stats.openDashboard",
