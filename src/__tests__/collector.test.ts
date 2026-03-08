@@ -15,7 +15,7 @@ const collectMock = vi.fn<() => Promise<unknown>>(() =>
 );
 
 vi.mock("../aggregator/index.js", () => ({
-  collect: (...args: unknown[]) => collectMock(...args),
+  collect: (...args: Parameters<typeof collectMock>) => collectMock(...args),
 }));
 
 const storeCloseMock = vi.fn();
