@@ -1,0 +1,15 @@
+# Source files (bundled into dist/)
+../src/**
+../scripts/**
+../doc/**
+../coverage/**
+../node_modules/**
+
+# Build artifacts we don't need
+dist/**/*.map
+
+# Dev / config files
+../.gitignore
+../tsconfig.json
+../vitest.config.ts
+../.claude/**

@@ -1,0 +1,35 @@
+{
+  "name": "claude-stats",
+  "version": "0.1.0",
+  "description": "Collect and analyse Claude Code usage statistics from local session data",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "claude-stats": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:ext": "node scripts/build-extension.mjs",
+    "build:all": "tsc && node scripts/build-extension.mjs",
+    "package:ext": "npm run build:ext && cd extension && npx @vscode/vsce package --no-dependencies",
+    "dev": "tsx src/index.ts",
+    "start": "node --experimental-sqlite dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "esbuild": "^0.27.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^4.0.18"
+  }
+}

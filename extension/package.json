@@ -1,0 +1,39 @@
+{
+  "name": "claude-stats-vscode",
+  "displayName": "Claude Stats",
+  "description": "View Claude Code usage statistics in VS Code",
+  "version": "0.1.0",
+  "publisher": "claude-stats",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Visualization", "Other"],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claude-stats.openDashboard",
+        "title": "Open Dashboard",
+        "category": "Claude Stats"
+      }
+    ],
+    "configuration": {
+      "title": "Claude Stats",
+      "properties": {
+        "claude-stats.port": {
+          "type": "number",
+          "default": 9120,
+          "description": "Port for the local dashboard server (used by the serve command)."
+        },
+        "claude-stats.autoRefreshSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "description": "Auto-refresh interval in seconds for the dashboard panel. Set to 0 to disable."
+        }
+      }
+    }
+  }
+}

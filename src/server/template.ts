@@ -1,0 +1,398 @@
+/**
+ * HTML dashboard template renderer.
+ * Produces a self-contained HTML page with Chart.js charts from DashboardData.
+ */
+import type { DashboardData } from "../dashboard/index.js";
+
+export { DashboardData };
+
+/**
+ * Renders a complete self-contained HTML dashboard page.
+ */
+export function renderDashboard(data: DashboardData): string {
+  const generatedDate = data.generated.slice(0, 10); // YYYY-MM-DD portion
+  const title = `Claude Stats — ${data.period} (${generatedDate})`;
+  const jsonData = JSON.stringify(data);
+
+  const totalTokens = data.summary.inputTokens + data.summary.outputTokens;
+  const formattedCost = `$${data.summary.estimatedCost.toFixed(2)}`;
+  const cacheEff = `${data.summary.cacheEfficiency.toFixed(1)}%`;
+
+  // Period selector: which option should be pre-selected
+  const periods = ["day", "week", "month", "all"] as const;
+  const periodOptions = periods
+    .map(
+      (p) =>
+        `<option value="${p}"${data.period === p ? " selected" : ""}>${
+          p.charAt(0).toUpperCase() + p.slice(1)
+        }</option>`
+    )
+    .join("\n          ");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      background: #1a1a2e;
+      color: #eee;
+      padding: 1.5rem;
+      min-height: 100vh;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: #a0c4ff;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .toolbar label {
+      font-size: 0.85rem;
+      color: #aaa;
+    }
+    .toolbar select {
+      background: #16213e;
+      color: #eee;
+      border: 1px solid #0f3460;
+      border-radius: 4px;
+      padding: 0.3rem 0.6rem;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .toolbar button {
+      background: #0f3460;
+      color: #eee;
+      border: 1px solid #1a508b;
+      border-radius: 4px;
+      padding: 0.3rem 0.8rem;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .toolbar button:hover { background: #1a508b; }
+    .summary-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .summary-card {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      padding: 1rem;
+      text-align: center;
+    }
+    .summary-card .label {
+      font-size: 0.7rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.4rem;
+    }
+    .summary-card .value {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #a0c4ff;
+    }
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.5rem;
+    }
+    @media (max-width: 768px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+    .chart-card {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      padding: 1rem;
+    }
+    .chart-card h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #888;
+      margin-bottom: 0.75rem;
+    }
+    canvas { max-height: 280px; }
+    .footer {
+      margin-top: 1.5rem;
+      font-size: 0.7rem;
+      color: #555;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+
+  <div class="toolbar">
+    <label for="period-select">Period:</label>
+    <select id="period-select" onchange="changePeriod(this.value)">
+      ${periodOptions}
+    </select>
+    <button id="refresh-btn" onclick="toggleRefresh()">Auto-refresh: off</button>
+  </div>
+
+  <div class="summary-bar">
+    <div class="summary-card">
+      <div class="label">Sessions</div>
+      <div class="value">${data.summary.sessions}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Prompts</div>
+      <div class="value">${data.summary.prompts}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Total Tokens</div>
+      <div class="value">${fmtNum(totalTokens)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Cache Efficiency</div>
+      <div class="value">${cacheEff}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Est. Cost</div>
+      <div class="value">${formattedCost}</div>
+    </div>
+  </div>
+
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h2>Daily Token Usage</h2>
+      <canvas id="chart-daily"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>Tokens by Model</h2>
+      <canvas id="chart-model"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>Top Projects</h2>
+      <canvas id="chart-project"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>Sessions by Entrypoint</h2>
+      <canvas id="chart-entrypoint"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>Stop Reasons</h2>
+      <canvas id="chart-stops"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>Cache Usage</h2>
+      <canvas id="chart-cache"></canvas>
+    </div>
+  </div>
+
+  <div class="footer">Generated ${data.generated} &bull; Timezone: ${data.timezone}</div>
+
+  <script>window.__DASHBOARD__ = ${jsonData};</script>
+  <script>
+    (function () {
+      var d = window.__DASHBOARD__;
+      var COLORS = [
+        '#4e79a7','#f28e2b','#e15759','#76b7b2',
+        '#59a14f','#edc948','#b07aa1','#ff9da7',
+        '#9c755f','#bab0ac'
+      ];
+
+      // ── Helpers ──────────────────────────────────────────────────────────
+      function urlParam(name) {
+        return new URLSearchParams(window.location.search).get(name);
+      }
+
+      function setUrlParam(name, value) {
+        var url = new URL(window.location.href);
+        if (value === null) {
+          url.searchParams.delete(name);
+        } else {
+          url.searchParams.set(name, value);
+        }
+        return url.toString();
+      }
+
+      // ── Period selector ──────────────────────────────────────────────────
+      function changePeriod(val) {
+        window.location.href = setUrlParam('period', val);
+      }
+      window.changePeriod = changePeriod;
+
+      // ── Auto-refresh toggle ───────────────────────────────────────────────
+      var refreshSecs = parseInt(urlParam('refresh') || '0', 10);
+      var refreshBtn = document.getElementById('refresh-btn');
+      if (refreshSecs > 0) {
+        refreshBtn.textContent = 'Auto-refresh: on (' + refreshSecs + 's)';
+        setTimeout(function () { location.reload(); }, refreshSecs * 1000);
+      }
+      function toggleRefresh() {
+        if (refreshSecs > 0) {
+          window.location.href = setUrlParam('refresh', null);
+        } else {
+          window.location.href = setUrlParam('refresh', '30');
+        }
+      }
+      window.toggleRefresh = toggleRefresh;
+
+      // ── Chart defaults ───────────────────────────────────────────────────
+      Chart.defaults.color = '#aaa';
+      Chart.defaults.borderColor = '#2a2a4a';
+
+      var chartOpts = {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: { legend: { labels: { color: '#ccc', font: { size: 11 } } } }
+      };
+
+      // ── 1. Daily line chart ──────────────────────────────────────────────
+      (function () {
+        var ctx = document.getElementById('chart-daily').getContext('2d');
+        var labels = d.byDay.map(function (r) { return r.date; });
+        var tokens = d.byDay.map(function (r) { return r.inputTokens + r.outputTokens; });
+        var costs  = d.byDay.map(function (r) { return r.estimatedCost; });
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: 'Tokens',
+                data: tokens,
+                borderColor: '#4e79a7',
+                backgroundColor: 'rgba(78,121,167,0.15)',
+                tension: 0.3,
+                yAxisID: 'yTokens'
+              },
+              {
+                label: 'Cost ($)',
+                data: costs,
+                borderColor: '#f28e2b',
+                backgroundColor: 'rgba(242,142,43,0.15)',
+                tension: 0.3,
+                yAxisID: 'yCost'
+              }
+            ]
+          },
+          options: Object.assign({}, chartOpts, {
+            scales: {
+              yTokens: { type: 'linear', position: 'left',  title: { display: true, text: 'Tokens', color: '#888' } },
+              yCost:   { type: 'linear', position: 'right', title: { display: true, text: 'Cost ($)', color: '#888' }, grid: { drawOnChartArea: false } }
+            }
+          })
+        });
+      }());
+
+      // ── 2. Model doughnut ────────────────────────────────────────────────
+      (function () {
+        var ctx = document.getElementById('chart-model').getContext('2d');
+        var labels = d.byModel.map(function (r) { return r.model; });
+        var values = d.byModel.map(function (r) { return r.inputTokens + r.outputTokens; });
+        new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: labels,
+            datasets: [{ data: values, backgroundColor: COLORS }]
+          },
+          options: chartOpts
+        });
+      }());
+
+      // ── 3. Project horizontal bar (top 10) ───────────────────────────────
+      (function () {
+        var ctx = document.getElementById('chart-project').getContext('2d');
+        var top10 = d.byProject.slice(0, 10);
+        var labels = top10.map(function (r) {
+          var parts = r.projectPath.replace(/\\/g, '/').split('/');
+          return parts[parts.length - 1] || r.projectPath;
+        });
+        var values = top10.map(function (r) { return r.inputTokens + r.outputTokens; });
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{ label: 'Tokens', data: values, backgroundColor: '#4e79a7' }]
+          },
+          options: Object.assign({}, chartOpts, {
+            indexAxis: 'y',
+            scales: {
+              x: { title: { display: true, text: 'Tokens', color: '#888' } }
+            }
+          })
+        });
+      }());
+
+      // ── 4. Entrypoint pie ────────────────────────────────────────────────
+      (function () {
+        var ctx = document.getElementById('chart-entrypoint').getContext('2d');
+        var labels = d.byEntrypoint.map(function (r) { return r.entrypoint; });
+        var values = d.byEntrypoint.map(function (r) { return r.sessions; });
+        new Chart(ctx, {
+          type: 'pie',
+          data: {
+            labels: labels,
+            datasets: [{ data: values, backgroundColor: COLORS }]
+          },
+          options: chartOpts
+        });
+      }());
+
+      // ── 5. Stop reasons bar ──────────────────────────────────────────────
+      (function () {
+        var ctx = document.getElementById('chart-stops').getContext('2d');
+        var labels = d.stopReasons.map(function (r) { return r.reason; });
+        var values = d.stopReasons.map(function (r) { return r.count; });
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [{ label: 'Count', data: values, backgroundColor: '#59a14f' }]
+          },
+          options: chartOpts
+        });
+      }());
+
+      // ── 6. Cache doughnut ────────────────────────────────────────────────
+      (function () {
+        var ctx = document.getElementById('chart-cache').getContext('2d');
+        var cacheRead   = d.summary.cacheReadTokens;
+        var nonCached   = d.summary.inputTokens - d.summary.cacheReadTokens;
+        if (nonCached < 0) nonCached = 0;
+        var eff = d.summary.cacheEfficiency.toFixed(1);
+        new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Cache Read (' + eff + '% efficiency)', 'Non-cached Input'],
+            datasets: [{
+              data: [cacheRead, nonCached],
+              backgroundColor: ['#59a14f', '#4e79a7']
+            }]
+          },
+          options: chartOpts
+        });
+      }());
+    }());
+  </script>
+</body>
+</html>`;
+}
+
+/** Format a large number with k/M suffix for display in summary bar. */
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
