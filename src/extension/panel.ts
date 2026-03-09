@@ -18,6 +18,7 @@ export class DashboardPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
   private period: ReportOptions["period"] = "all";
+  private readonly chartJsUri: vscode.Uri;
 
   /**
    * Refresh the currently visible dashboard panel (if any).
@@ -33,18 +34,22 @@ export class DashboardPanel {
       return;
     }
 
+    const mediaUri = vscode.Uri.joinPath(context.extensionUri, "media");
     const panel = vscode.window.createWebviewPanel(
       "claudeStatsDashboard",
       "Claude Stats",
       vscode.ViewColumn.Two,
-      { enableScripts: true },
+      { enableScripts: true, localResourceRoots: [mediaUri] },
     );
 
     DashboardPanel.instance = new DashboardPanel(panel, context);
   }
 
-  private constructor(panel: vscode.WebviewPanel, _context: vscode.ExtensionContext) {
+  private constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext) {
     this.panel = panel;
+    this.chartJsUri = panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(context.extensionUri, "media", "chart.min.js"),
+    );
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 
@@ -64,7 +69,11 @@ export class DashboardPanel {
     try {
       const data = buildDashboard(store, { period: this.period });
       const html = renderDashboard(data);
-      this.panel.webview.html = patchForWebview(html);
+      this.panel.webview.html = patchForWebview(
+        html,
+        this.panel.webview.cspSource,
+        this.chartJsUri.toString(),
+      );
     } finally {
       store.close();
     }
@@ -85,37 +94,78 @@ export class DashboardPanel {
   }
 }
 
+/** Generate a random nonce string for CSP script-src. */
+function getNonce(): string {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let nonce = "";
+  for (let i = 0; i < 32; i++) {
+    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return nonce;
+}
+
 /**
  * Patch the HTML produced by renderDashboard() for use inside a VS Code webview:
- * 1. Inject a Content-Security-Policy allowing Chart.js from CDN and inline scripts/styles.
- * 2. Override changePeriod() and toggleRefresh() to use postMessage back to the extension.
+ *
+ * 1. Replace CDN Chart.js with a local webview resource URI.
+ * 2. Inject a nonce-based Content-Security-Policy (per VS Code webview best practices).
+ * 3. Add nonce attributes to all <script> tags so they execute under the CSP.
+ * 4. Remove inline event handlers (blocked by nonce CSP) and replace them
+ *    with a nonce'd bridge script that uses addEventListener + postMessage.
  */
-export function patchForWebview(html: string): string {
-  // 1. Inject CSP meta tag
+export function patchForWebview(html: string, cspSource: string, chartJsUri: string): string {
+  const nonce = getNonce();
+
+  // 1. Replace CDN script tag with local webview resource
+  html = html.replace(
+    /<script src="https:\/\/cdn\.jsdelivr\.net\/[^"]*chart[^"]*"><\/script>/,
+    `<script nonce="${nonce}" src="${chartJsUri}"></script>`,
+  );
+
+  // 2. Add nonce to all remaining <script> tags (both inline and src-based)
+  html = html.replace(/<script>/g, `<script nonce="${nonce}">`);
+
+  // 3. Remove inline event handlers (nonce-based CSP blocks them)
+  html = html.replace(/ onchange="[^"]*"/g, "");
+  html = html.replace(/ onclick="[^"]*"/g, "");
+
+  // 4. Inject CSP meta tag using nonce (not 'unsafe-inline')
   const csp = [
     "default-src 'none'",
-    "script-src https://cdn.jsdelivr.net 'unsafe-inline'",
-    "style-src 'unsafe-inline'",
+    `script-src 'nonce-${nonce}'`,
+    `style-src ${cspSource} 'unsafe-inline'`,
   ].join("; ");
   html = html.replace(
     "<head>",
     `<head>\n  <meta http-equiv="Content-Security-Policy" content="${csp}">`,
   );
 
-  // 2. Inject script that overrides navigation functions to use VS Code messaging
-  const bridgeScript = `<script>
+  // 5. Inject bridge script that wires up VS Code messaging and event handlers
+  const bridgeScript = `<script nonce="${nonce}">
 (function() {
   var vscode = acquireVsCodeApi();
-  window.changePeriod = function(val) {
-    vscode.postMessage({ command: 'changePeriod', period: val });
-  };
+
+  // Wire up period selector
+  var sel = document.getElementById('period-select');
+  if (sel) {
+    sel.addEventListener('change', function() {
+      vscode.postMessage({ command: 'changePeriod', period: sel.value });
+    });
+  }
+
+  // Wire up refresh button
   var btn = document.getElementById('refresh-btn');
   if (btn) {
     btn.textContent = 'Refresh';
-    btn.onclick = function() {
+    btn.addEventListener('click', function() {
       vscode.postMessage({ command: 'refresh' });
-    };
+    });
   }
+
+  // Override global functions in case they're called from chart init script
+  window.changePeriod = function(val) {
+    vscode.postMessage({ command: 'changePeriod', period: val });
+  };
   window.toggleRefresh = function() {
     vscode.postMessage({ command: 'refresh' });
   };

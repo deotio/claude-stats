@@ -14,7 +14,6 @@ export function renderDashboard(data: DashboardData): string {
   const title = `Claude Stats — ${data.period} (${generatedDate})`;
   const jsonData = JSON.stringify(data);
 
-  const totalTokens = data.summary.inputTokens + data.summary.outputTokens;
   const formattedCost = `$${data.summary.estimatedCost.toFixed(2)}`;
   const cacheEff = `${data.summary.cacheEfficiency.toFixed(1)}%`;
 
@@ -85,26 +84,26 @@ export function renderDashboard(data: DashboardData): string {
     .toolbar button:hover { background: #1a508b; }
     .summary-bar {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 0.75rem;
       margin-bottom: 1.5rem;
     }
     .summary-card {
       background: #16213e;
       border: 1px solid #0f3460;
       border-radius: 6px;
-      padding: 1rem;
+      padding: 0.75rem;
       text-align: center;
     }
     .summary-card .label {
-      font-size: 0.7rem;
+      font-size: 0.65rem;
       color: #888;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      margin-bottom: 0.4rem;
+      margin-bottom: 0.3rem;
     }
     .summary-card .value {
-      font-size: 1.4rem;
+      font-size: 1.2rem;
       font-weight: 700;
       color: #a0c4ff;
     }
@@ -159,8 +158,20 @@ export function renderDashboard(data: DashboardData): string {
       <div class="value">${data.summary.prompts}</div>
     </div>
     <div class="summary-card">
-      <div class="label">Total Tokens</div>
-      <div class="value">${fmtNum(totalTokens)}</div>
+      <div class="label">Input Tokens</div>
+      <div class="value">${fmtNum(data.summary.inputTokens)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Output Tokens</div>
+      <div class="value">${fmtNum(data.summary.outputTokens)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Cache Read</div>
+      <div class="value">${fmtNum(data.summary.cacheReadTokens)}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Cache Created</div>
+      <div class="value">${fmtNum(data.summary.cacheCreationTokens)}</div>
     </div>
     <div class="summary-card">
       <div class="label">Cache Efficiency</div>
@@ -176,6 +187,10 @@ export function renderDashboard(data: DashboardData): string {
     <div class="chart-card">
       <h2>Daily Token Usage</h2>
       <canvas id="chart-daily"></canvas>
+    </div>
+    <div class="chart-card">
+      <h2>Token Breakdown</h2>
+      <canvas id="chart-token-breakdown"></canvas>
     </div>
     <div class="chart-card">
       <h2>Tokens by Model</h2>
@@ -226,6 +241,13 @@ export function renderDashboard(data: DashboardData): string {
         return url.toString();
       }
 
+      function fmtTokens(n) {
+        if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+        if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+        if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+        return String(n);
+      }
+
       // ── Period selector ──────────────────────────────────────────────────
       function changePeriod(val) {
         window.location.href = setUrlParam('period', val);
@@ -258,84 +280,148 @@ export function renderDashboard(data: DashboardData): string {
         plugins: { legend: { labels: { color: '#ccc', font: { size: 11 } } } }
       };
 
-      // ── 1. Daily line chart ──────────────────────────────────────────────
+      // ── 1. Daily stacked bar chart (input/output/cache) ────────────────
       (function () {
         var ctx = document.getElementById('chart-daily').getContext('2d');
         var labels = d.byDay.map(function (r) { return r.date; });
-        var tokens = d.byDay.map(function (r) { return r.inputTokens + r.outputTokens; });
-        var costs  = d.byDay.map(function (r) { return r.estimatedCost; });
         new Chart(ctx, {
-          type: 'line',
+          type: 'bar',
           data: {
             labels: labels,
             datasets: [
               {
-                label: 'Tokens',
-                data: tokens,
-                borderColor: '#4e79a7',
-                backgroundColor: 'rgba(78,121,167,0.15)',
-                tension: 0.3,
-                yAxisID: 'yTokens'
+                label: 'Output',
+                data: d.byDay.map(function (r) { return r.outputTokens; }),
+                backgroundColor: '#f28e2b'
               },
               {
-                label: 'Cost ($)',
-                data: costs,
-                borderColor: '#f28e2b',
-                backgroundColor: 'rgba(242,142,43,0.15)',
-                tension: 0.3,
-                yAxisID: 'yCost'
+                label: 'Input (non-cached)',
+                data: d.byDay.map(function (r) { return r.inputTokens; }),
+                backgroundColor: '#4e79a7'
+              },
+              {
+                label: 'Cache Read',
+                data: d.byDay.map(function (r) { return r.cacheReadTokens; }),
+                backgroundColor: '#59a14f'
+              },
+              {
+                label: 'Cache Creation',
+                data: d.byDay.map(function (r) { return r.cacheCreationTokens; }),
+                backgroundColor: '#e15759'
               }
             ]
           },
           options: Object.assign({}, chartOpts, {
             scales: {
-              yTokens: { type: 'linear', position: 'left',  title: { display: true, text: 'Tokens', color: '#888' } },
-              yCost:   { type: 'linear', position: 'right', title: { display: true, text: 'Cost ($)', color: '#888' }, grid: { drawOnChartArea: false } }
+              x: { stacked: true },
+              y: {
+                stacked: true,
+                title: { display: true, text: 'Tokens', color: '#888' },
+                ticks: { callback: function(v) { return fmtTokens(v); } }
+              }
             }
           })
         });
       }());
 
-      // ── 2. Model doughnut ────────────────────────────────────────────────
+      // ── 2. Token breakdown doughnut ────────────────────────────────────
       (function () {
-        var ctx = document.getElementById('chart-model').getContext('2d');
-        var labels = d.byModel.map(function (r) { return r.model; });
-        var values = d.byModel.map(function (r) { return r.inputTokens + r.outputTokens; });
+        var ctx = document.getElementById('chart-token-breakdown').getContext('2d');
+        var values = [
+          d.summary.outputTokens,
+          d.summary.inputTokens,
+          d.summary.cacheReadTokens,
+          d.summary.cacheCreationTokens
+        ];
         new Chart(ctx, {
           type: 'doughnut',
           data: {
-            labels: labels,
-            datasets: [{ data: values, backgroundColor: COLORS }]
+            labels: [
+              'Output (' + fmtTokens(values[0]) + ')',
+              'Input (' + fmtTokens(values[1]) + ')',
+              'Cache Read (' + fmtTokens(values[2]) + ')',
+              'Cache Creation (' + fmtTokens(values[3]) + ')'
+            ],
+            datasets: [{ data: values, backgroundColor: ['#f28e2b', '#4e79a7', '#59a14f', '#e15759'] }]
           },
           options: chartOpts
         });
       }());
 
-      // ── 3. Project horizontal bar (top 10) ───────────────────────────────
+      // ── 3. Model stacked bar (input vs output per model) ───────────────
       (function () {
-        var ctx = document.getElementById('chart-project').getContext('2d');
-        var top10 = d.byProject.slice(0, 10);
-        var labels = top10.map(function (r) {
-          var parts = r.projectPath.replace(/\\/g, '/').split('/');
-          return parts[parts.length - 1] || r.projectPath;
-        });
-        var values = top10.map(function (r) { return r.inputTokens + r.outputTokens; });
+        var ctx = document.getElementById('chart-model').getContext('2d');
+        var labels = d.byModel.map(function (r) { return r.model; });
         new Chart(ctx, {
           type: 'bar',
           data: {
             labels: labels,
-            datasets: [{ label: 'Tokens', data: values, backgroundColor: '#4e79a7' }]
+            datasets: [
+              {
+                label: 'Output',
+                data: d.byModel.map(function (r) { return r.outputTokens; }),
+                backgroundColor: '#f28e2b'
+              },
+              {
+                label: 'Input',
+                data: d.byModel.map(function (r) { return r.inputTokens; }),
+                backgroundColor: '#4e79a7'
+              }
+            ]
           },
           options: Object.assign({}, chartOpts, {
-            indexAxis: 'y',
             scales: {
-              x: { title: { display: true, text: 'Tokens', color: '#888' } }
+              x: { stacked: true },
+              y: {
+                stacked: true,
+                title: { display: true, text: 'Tokens', color: '#888' },
+                ticks: { callback: function(v) { return fmtTokens(v); } }
+              }
             }
           })
         });
       }());
 
-      // ── 4. Entrypoint pie ────────────────────────────────────────────────
+      // ── 4. Project horizontal bar (top 10) ───────────────────────────────
+      (function () {
+        var ctx = document.getElementById('chart-project').getContext('2d');
+        var top10 = d.byProject.slice(0, 10);
+        var labels = top10.map(function (r) {
+          var parts = r.projectPath.replace(/\\\\/g, '/').split('/');
+          return parts[parts.length - 1] || r.projectPath;
+        });
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: 'Output',
+                data: top10.map(function (r) { return r.outputTokens; }),
+                backgroundColor: '#f28e2b'
+              },
+              {
+                label: 'Input',
+                data: top10.map(function (r) { return r.inputTokens; }),
+                backgroundColor: '#4e79a7'
+              }
+            ]
+          },
+          options: Object.assign({}, chartOpts, {
+            indexAxis: 'y',
+            scales: {
+              x: {
+                stacked: true,
+                title: { display: true, text: 'Tokens', color: '#888' },
+                ticks: { callback: function(v) { return fmtTokens(v); } }
+              },
+              y: { stacked: true }
+            }
+          })
+        });
+      }());
+
+      // ── 5. Entrypoint pie ────────────────────────────────────────────────
       (function () {
         var ctx = document.getElementById('chart-entrypoint').getContext('2d');
         var labels = d.byEntrypoint.map(function (r) { return r.entrypoint; });
@@ -350,7 +436,7 @@ export function renderDashboard(data: DashboardData): string {
         });
       }());
 
-      // ── 5. Stop reasons bar ──────────────────────────────────────────────
+      // ── 6. Stop reasons bar ──────────────────────────────────────────────
       (function () {
         var ctx = document.getElementById('chart-stops').getContext('2d');
         var labels = d.stopReasons.map(function (r) { return r.reason; });
@@ -365,20 +451,24 @@ export function renderDashboard(data: DashboardData): string {
         });
       }());
 
-      // ── 6. Cache doughnut ────────────────────────────────────────────────
+      // ── 7. Cache doughnut ────────────────────────────────────────────────
       (function () {
         var ctx = document.getElementById('chart-cache').getContext('2d');
-        var cacheRead   = d.summary.cacheReadTokens;
-        var nonCached   = d.summary.inputTokens - d.summary.cacheReadTokens;
-        if (nonCached < 0) nonCached = 0;
+        var cacheRead = d.summary.cacheReadTokens;
+        var cacheCreate = d.summary.cacheCreationTokens;
+        var nonCached = d.summary.inputTokens;
         var eff = d.summary.cacheEfficiency.toFixed(1);
         new Chart(ctx, {
           type: 'doughnut',
           data: {
-            labels: ['Cache Read (' + eff + '% efficiency)', 'Non-cached Input'],
+            labels: [
+              'Cache Read (' + fmtTokens(cacheRead) + ', ' + eff + '%)',
+              'Cache Creation (' + fmtTokens(cacheCreate) + ')',
+              'Non-cached Input (' + fmtTokens(nonCached) + ')'
+            ],
             datasets: [{
-              data: [cacheRead, nonCached],
-              backgroundColor: ['#59a14f', '#4e79a7']
+              data: [cacheRead, cacheCreate, nonCached],
+              backgroundColor: ['#59a14f', '#e15759', '#4e79a7']
             }]
           },
           options: chartOpts
@@ -392,6 +482,7 @@ export function renderDashboard(data: DashboardData): string {
 
 /** Format a large number with k/M suffix for display in summary bar. */
 function fmtNum(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);

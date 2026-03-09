@@ -151,13 +151,15 @@ describe("buildDashboard — with sessions", () => {
 
   it("computes cache efficiency correctly", () => {
     store.upsertSession(makeSession({
-      inputTokens: 10_000,
-      cacheReadTokens: 10_000,
+      inputTokens: 1_000,
+      cacheReadTokens: 8_000,
+      cacheCreationTokens: 1_000,
     }));
 
     const data = buildDashboard(store, { timezone: "UTC" });
-    // cacheEfficiency = (10000 / (10000 + 10000)) * 100 = 50.0
-    expect(data.summary.cacheEfficiency).toBe(50.0);
+    // totalLogicalInput = 1000 + 1000 + 8000 = 10000
+    // cacheEfficiency = (8000 / 10000) * 100 = 80.0
+    expect(data.summary.cacheEfficiency).toBe(80.0);
   });
 
   it("computes totalDurationMs from timestamps", () => {

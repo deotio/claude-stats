@@ -30,6 +30,8 @@ export interface DashboardData {
     prompts: number;
     inputTokens: number;
     outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
     estimatedCost: number;
   }>;
   byProject: Array<{
@@ -85,7 +87,7 @@ export function buildDashboard(store: Store, opts: ReportOptions): DashboardData
   });
 
   // Accumulators for grouping
-  const dayMap = new Map<string, { sessions: number; prompts: number; inputTokens: number; outputTokens: number }>();
+  const dayMap = new Map<string, { sessions: number; prompts: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }>();
   const projectMap = new Map<string, { sessions: number; prompts: number; inputTokens: number; outputTokens: number }>();
   const entrypointMap = new Map<string, number>();
 
@@ -103,11 +105,13 @@ export function buildDashboard(store: Store, opts: ReportOptions): DashboardData
     const dateStr = row.first_timestamp != null
       ? dayFmt.format(new Date(row.first_timestamp))
       : "unknown";
-    const dayEntry = dayMap.get(dateStr) ?? { sessions: 0, prompts: 0, inputTokens: 0, outputTokens: 0 };
+    const dayEntry = dayMap.get(dateStr) ?? { sessions: 0, prompts: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
     dayEntry.sessions++;
     dayEntry.prompts += row.prompt_count;
     dayEntry.inputTokens += row.input_tokens;
     dayEntry.outputTokens += row.output_tokens;
+    dayEntry.cacheReadTokens += row.cache_read_tokens;
+    dayEntry.cacheCreationTokens += row.cache_creation_tokens;
     dayMap.set(dateStr, dayEntry);
 
     // byProject
@@ -160,6 +164,8 @@ export function buildDashboard(store: Store, opts: ReportOptions): DashboardData
       prompts: d.prompts,
       inputTokens: d.inputTokens,
       outputTokens: d.outputTokens,
+      cacheReadTokens: d.cacheReadTokens,
+      cacheCreationTokens: d.cacheCreationTokens,
       estimatedCost: Math.round((d.outputTokens / totalOutputForCost) * totalCost * 100) / 100,
     }));
 
@@ -176,8 +182,10 @@ export function buildDashboard(store: Store, opts: ReportOptions): DashboardData
     }));
 
   // ── Cache efficiency ─────────────────────────────────────────────────────
-  const cacheEfficiency = totalInput > 0
-    ? Math.round(((totalCacheRead / (totalInput + totalCacheRead)) * 100) * 10) / 10
+  // Total logical input = non-cached input + cache creation + cache read
+  const totalLogicalInput = totalInput + totalCacheCreate + totalCacheRead;
+  const cacheEfficiency = totalLogicalInput > 0
+    ? Math.round(((totalCacheRead / totalLogicalInput) * 100) * 10) / 10
     : 0;
 
   // ── Stop reasons ─────────────────────────────────────────────────────────

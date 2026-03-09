@@ -24,6 +24,8 @@ const mockData: DashboardData = {
       prompts: 20,
       inputTokens: 100000,
       outputTokens: 15000,
+      cacheReadTokens: 80000,
+      cacheCreationTokens: 20000,
       estimatedCost: 0.75,
     },
     {
@@ -32,6 +34,8 @@ const mockData: DashboardData = {
       prompts: 30,
       inputTokens: 150000,
       outputTokens: 25000,
+      cacheReadTokens: 120000,
+      cacheCreationTokens: 30000,
       estimatedCost: 1.10,
     },
   ],

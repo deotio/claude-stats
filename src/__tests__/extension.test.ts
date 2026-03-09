@@ -54,58 +54,101 @@ describe("formatTokens", () => {
 // ── patchForWebview ───────────────────────────────────────────────────────────
 
 describe("patchForWebview", () => {
+  const CDN_SCRIPT = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>';
+  const LOCAL_CHART_URI = "vscode-resource://extension/media/chart.min.js";
+  const CSP_SOURCE = "https://file+.vscode-resource.vscode-cdn.net";
+
   const sampleHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>Test</title>
+  ${CDN_SCRIPT}
 </head>
 <body>
-  <button id="refresh-btn">Auto-refresh: off</button>
+  <select id="period-select" onchange="changePeriod(this.value)"></select>
+  <button id="refresh-btn" onclick="toggleRefresh()">Auto-refresh: off</button>
   <script>window.__DASHBOARD__ = {};</script>
 </body>
 </html>`;
 
-  it("injects Content-Security-Policy meta tag", () => {
-    const result = patchForWebview(sampleHtml);
+  it("injects nonce-based Content-Security-Policy meta tag", () => {
+    const result = patchForWebview(sampleHtml, CSP_SOURCE, LOCAL_CHART_URI);
     expect(result).toContain('http-equiv="Content-Security-Policy"');
-    expect(result).toContain("https://cdn.jsdelivr.net");
+    expect(result).toMatch(/script-src 'nonce-[A-Za-z0-9]+'/);
+    // Style-src still uses unsafe-inline (safe for styles)
     expect(result).toContain("'unsafe-inline'");
+    // Should NOT use unsafe-inline for scripts
+    expect(result).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+  });
+
+  it("adds nonce attribute to all script tags", () => {
+    const result = patchForWebview(sampleHtml, CSP_SOURCE, LOCAL_CHART_URI);
+    // Every <script> tag should have a nonce
+    const scriptTags = result.match(/<script[\s>]/g) || [];
+    const noncedTags = result.match(/<script nonce="/g) || [];
+    expect(scriptTags.length).toBe(noncedTags.length);
+    expect(scriptTags.length).toBeGreaterThan(0);
+  });
+
+  it("uses the same nonce across CSP and all script tags", () => {
+    const result = patchForWebview(sampleHtml, CSP_SOURCE, LOCAL_CHART_URI);
+    const cspNonce = result.match(/script-src 'nonce-([A-Za-z0-9]+)'/);
+    expect(cspNonce).not.toBeNull();
+    const nonce = cspNonce![1];
+    // All script nonces should match the CSP nonce
+    const tagNonces = [...result.matchAll(/nonce="([A-Za-z0-9]+)"/g)].map(m => m[1]);
+    expect(tagNonces.length).toBeGreaterThan(0);
+    for (const n of tagNonces) {
+      expect(n).toBe(nonce);
+    }
+  });
+
+  it("removes inline event handlers", () => {
+    const result = patchForWebview(sampleHtml, CSP_SOURCE, LOCAL_CHART_URI);
+    expect(result).not.toContain('onchange=');
+    expect(result).not.toContain('onclick=');
   });
 
   it("injects the VS Code messaging bridge script", () => {
-    const result = patchForWebview(sampleHtml);
+    const result = patchForWebview(sampleHtml, CSP_SOURCE, LOCAL_CHART_URI);
     expect(result).toContain("acquireVsCodeApi");
     expect(result).toContain("changePeriod");
     expect(result).toContain("postMessage");
   });
 
-  it("overrides the refresh button text and handler", () => {
-    const result = patchForWebview(sampleHtml);
+  it("wires up event listeners in bridge script", () => {
+    const result = patchForWebview(sampleHtml, CSP_SOURCE, LOCAL_CHART_URI);
+    expect(result).toContain("addEventListener");
     expect(result).toContain("btn.textContent = 'Refresh'");
-    expect(result).toContain("btn.onclick");
   });
 
   it("preserves the original HTML structure", () => {
-    const result = patchForWebview(sampleHtml);
+    const result = patchForWebview(sampleHtml, CSP_SOURCE, LOCAL_CHART_URI);
     expect(result).toContain("<!DOCTYPE html>");
     expect(result).toContain("window.__DASHBOARD__");
     expect(result).toContain("</html>");
   });
 
   it("places CSP before other head content", () => {
-    const result = patchForWebview(sampleHtml);
+    const result = patchForWebview(sampleHtml, CSP_SOURCE, LOCAL_CHART_URI);
     const cspIdx = result.indexOf("Content-Security-Policy");
     const charsetIdx = result.indexOf('charset="UTF-8"');
     expect(cspIdx).toBeLessThan(charsetIdx);
   });
 
   it("places bridge script before closing body tag", () => {
-    const result = patchForWebview(sampleHtml);
+    const result = patchForWebview(sampleHtml, CSP_SOURCE, LOCAL_CHART_URI);
     const bridgeIdx = result.indexOf("acquireVsCodeApi");
     const bodyCloseIdx = result.indexOf("</body>");
     expect(bridgeIdx).toBeLessThan(bodyCloseIdx);
     expect(bridgeIdx).toBeGreaterThan(0);
+  });
+
+  it("replaces CDN chart.js script tag with local URI", () => {
+    const result = patchForWebview(sampleHtml, CSP_SOURCE, LOCAL_CHART_URI);
+    expect(result).not.toContain("cdn.jsdelivr.net");
+    expect(result).toContain(`src="${LOCAL_CHART_URI}"`);
   });
 });
 

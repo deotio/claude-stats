@@ -10,6 +10,14 @@
  * - Format: CommonJS (required by VS Code extension host)
  */
 import * as esbuild from "esbuild";
+import { copyFileSync } from "fs";
+
+// Copy Chart.js UMD build to extension/media/ so it can be served as a local
+// webview resource (webviews cannot reliably load external CDN scripts).
+copyFileSync(
+  "node_modules/chart.js/dist/chart.umd.min.js",
+  "extension/media/chart.min.js",
+);
 
 const watch = process.argv.includes("--watch");
 

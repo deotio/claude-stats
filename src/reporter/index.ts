@@ -337,8 +337,9 @@ export function printSummary(store: Store, opts: ReportOptions = {}): void {
     for (const t of tools) toolCounts.set(t.name, (toolCounts.get(t.name) ?? 0) + t.count);
   }
 
-  const cacheEfficiency = totalInput > 0
-    ? ((totalCacheRead / (totalInput + totalCacheRead)) * 100).toFixed(1)
+  const totalLogicalInput = totalInput + totalCacheCreate + totalCacheRead;
+  const cacheEfficiency = totalLogicalInput > 0
+    ? ((totalCacheRead / totalLogicalInput) * 100).toFixed(1)
     : "0.0";
 
   const periodLabel = opts.period
