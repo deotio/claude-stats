@@ -89,17 +89,18 @@ describe("checkThresholds", () => {
         inferenceGeo: null,
         ephemeral5mCacheTokens: 0,
         ephemeral1hCacheTokens: 0,
+        promptText: null,
       },
     ]);
 
-    // opus: 1M input = $15, 100K output = $7.50 → $22.50
+    // opus 4.6: 1M input = $5, 100K output = $2.50 → $7.50
     const config: Config = { costThresholds: { day: 5 } };
     const results = checkThresholds(store, config);
 
     expect(results).toHaveLength(1);
     expect(results[0]!.period).toBe("day");
     expect(results[0]!.exceeded).toBe(true);
-    expect(results[0]!.currentCost).toBeCloseTo(22.5);
+    expect(results[0]!.currentCost).toBeCloseTo(7.5);
     expect(results[0]!.threshold).toBe(5);
     expect(results[0]!.percentage).toBeGreaterThan(100);
   });
@@ -156,6 +157,7 @@ describe("checkThresholds", () => {
         inferenceGeo: null,
         ephemeral5mCacheTokens: 0,
         ephemeral1hCacheTokens: 0,
+        promptText: null,
       },
     ]);
 
@@ -221,6 +223,7 @@ describe("checkThresholds", () => {
         inferenceGeo: null,
         ephemeral5mCacheTokens: 0,
         ephemeral1hCacheTokens: 0,
+        promptText: null,
       },
     ]);
 

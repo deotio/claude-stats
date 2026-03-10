@@ -6,12 +6,24 @@
  */
 import * as vscode from "vscode";
 import { DashboardPanel } from "./panel.js";
+import { SidebarProvider } from "./sidebar.js";
 import { StatusBarManager } from "./statusBar.js";
 import { AutoCollector } from "./collector.js";
+import { initPricingCache } from "../pricing-cache.js";
 
 export function activate(context: vscode.ExtensionContext): void {
+  // Load cached pricing (sync) and refresh in background if stale
+  void initPricingCache();
   const statusBar = new StatusBarManager();
   context.subscriptions.push(statusBar);
+
+  const sidebarProvider = new SidebarProvider(context.extensionUri);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      SidebarProvider.viewId,
+      sidebarProvider,
+    ),
+  );
 
   const collector = new AutoCollector();
   context.subscriptions.push(collector);
@@ -28,7 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
     "claude-stats.openDashboard",
     () => {
       try {
-        DashboardPanel.createOrShow(context);
+        DashboardPanel.createOrShow(context, sidebarProvider);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("sqlite") || msg.includes("SQLite")) {

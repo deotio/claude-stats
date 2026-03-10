@@ -258,14 +258,14 @@ describe("Store — messages", () => {
 
   it("inserts message records", () => {
     store.upsertMessages([
-      { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
+      { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
     ]);
     const status = store.getStatus();
     expect(status.messageCount).toBe(1);
   });
 
   it("upserts on uuid conflict", () => {
-    const msg = { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 };
+    const msg = { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null };
     store.upsertMessages([msg]);
     store.upsertMessages([{ ...msg, inputTokens: 200 }]);
     const status = store.getStatus();
@@ -382,10 +382,10 @@ describe("Store — getStopReasonCounts", () => {
 
   it("returns correct counts for different stop_reason values", () => {
     store.upsertMessages([
-      { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
-      { uuid: "m2", sessionId: "s1", timestamp: 1001, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
-      { uuid: "m3", sessionId: "s1", timestamp: 1002, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "tool_use", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
-      { uuid: "m4", sessionId: "s1", timestamp: 1003, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "max_tokens", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
+      { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
+      { uuid: "m2", sessionId: "s1", timestamp: 1001, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
+      { uuid: "m3", sessionId: "s1", timestamp: 1002, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "tool_use", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
+      { uuid: "m4", sessionId: "s1", timestamp: 1003, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "max_tokens", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
     ]);
     const counts = store.getStopReasonCounts(["s1"]);
     expect(counts.get("end_turn")).toBe(2);
@@ -395,8 +395,8 @@ describe("Store — getStopReasonCounts", () => {
 
   it("excludes null stop_reason messages", () => {
     store.upsertMessages([
-      { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
-      { uuid: "m2", sessionId: "s1", timestamp: 1001, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: null, inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
+      { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
+      { uuid: "m2", sessionId: "s1", timestamp: 1001, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: null, inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
     ]);
     const counts = store.getStopReasonCounts(["s1"]);
     expect(counts.size).toBe(1);
@@ -466,9 +466,9 @@ describe("Store — getSessionMessages", () => {
 
   it("returns messages ordered by timestamp ASC", () => {
     store.upsertMessages([
-      { uuid: "m3", sessionId: "s1", timestamp: 3000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: ["Read"], thinkingBlocks: 1, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
-      { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
-      { uuid: "m2", sessionId: "s1", timestamp: 2000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "tool_use", inputTokens: 200, outputTokens: 100, cacheCreationTokens: 0, cacheReadTokens: 0, tools: ["Edit", "Read"], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
+      { uuid: "m3", sessionId: "s1", timestamp: 3000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: ["Read"], thinkingBlocks: 1, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
+      { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
+      { uuid: "m2", sessionId: "s1", timestamp: 2000, claudeVersion: "2.1.70", model: "claude-opus-4-6", stopReason: "tool_use", inputTokens: 200, outputTokens: 100, cacheCreationTokens: 0, cacheReadTokens: 0, tools: ["Edit", "Read"], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
     ]);
     const messages = store.getSessionMessages("s1");
     expect(messages).toHaveLength(3);
@@ -640,9 +640,9 @@ describe("Store — getMessageTotalsBySession", () => {
 
   it("returns per-session per-model totals", () => {
     store.upsertMessages([
-      { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "v1", model: "claude-opus-4", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
-      { uuid: "m2", sessionId: "s1", timestamp: 2000, claudeVersion: "v1", model: "claude-opus-4", stopReason: "end_turn", inputTokens: 200, outputTokens: 80, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
-      { uuid: "m3", sessionId: "s2", timestamp: 3000, claudeVersion: "v1", model: "claude-sonnet-4", stopReason: "end_turn", inputTokens: 50, outputTokens: 20, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0 },
+      { uuid: "m1", sessionId: "s1", timestamp: 1000, claudeVersion: "v1", model: "claude-opus-4", stopReason: "end_turn", inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
+      { uuid: "m2", sessionId: "s1", timestamp: 2000, claudeVersion: "v1", model: "claude-opus-4", stopReason: "end_turn", inputTokens: 200, outputTokens: 80, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
+      { uuid: "m3", sessionId: "s2", timestamp: 3000, claudeVersion: "v1", model: "claude-sonnet-4", stopReason: "end_turn", inputTokens: 50, outputTokens: 20, cacheCreationTokens: 0, cacheReadTokens: 0, tools: [], thinkingBlocks: 0, serviceTier: null, inferenceGeo: null, ephemeral5mCacheTokens: 0, ephemeral1hCacheTokens: 0, promptText: null },
     ]);
     const totals = store.getMessageTotalsBySession(["s1", "s2"]);
     const s1Opus = totals.find(t => t.session_id === "s1" && t.model === "claude-opus-4");

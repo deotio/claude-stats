@@ -102,6 +102,7 @@ export async function parseSessionFile(
   const allTimestamps: number[] = [];     // for active duration
   const responseTimes: number[] = [];     // assistant_ts - user_ts pairs
   let lastUserTimestamp: number | null = null;
+  let lastPromptText: string | null = null;
 
   let lineNumber = 0;
   for (const { raw, offset } of linesToProcess) {
@@ -149,6 +150,12 @@ export async function parseSessionFile(
       if (!entry.isMeta) {
         promptCount++;
         if (ts !== null) lastUserTimestamp = ts;
+        // Extract user prompt text for the next assistant message
+        lastPromptText = extractPromptText(entry.message?.content);
+        // Detect IDE entrypoint from system-injected tags in user messages
+        if (!entrypoint) {
+          entrypoint = detectIdeEntrypoint(entry.message?.content);
+        }
       }
     } else if (type === "assistant") {
       assistantMessageCount++;
@@ -219,8 +226,10 @@ export async function parseSessionFile(
           inferenceGeo: usage?.inference_geo ?? null,
           ephemeral5mCacheTokens: usage?.cache_creation?.ephemeral_5m_input_tokens ?? 0,
           ephemeral1hCacheTokens: usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0,
+          promptText: lastPromptText,
         });
       }
+      lastPromptText = null;
     }
   }
 
@@ -258,7 +267,7 @@ export async function parseSessionFile(
         firstTimestamp,
         lastTimestamp,
         claudeVersion,
-        entrypoint,
+        entrypoint: entrypoint ?? "cli",
         gitBranch,
         permissionMode,
         isInteractive: hasQueueOperation,
@@ -285,6 +294,71 @@ export async function parseSessionFile(
     : null;
 
   return { session, messages, errors, lastGoodOffset, firstKbHash };
+}
+
+/**
+ * Extract the user-typed prompt text from a message content field.
+ * Strips system/IDE tags and tool_result blocks, keeping only actual user text.
+ * Returns null if no meaningful text is found.
+ */
+function extractPromptText(content: string | import("../types.js").ContentBlock[] | undefined): string | null {
+  if (!content) return null;
+
+  let texts: string[];
+  if (typeof content === "string") {
+    texts = [content];
+  } else if (Array.isArray(content)) {
+    texts = content
+      .filter((b) => b.type === "text" && b.text)
+      .map((b) => b.text!);
+  } else {
+    return null;
+  }
+
+  // Join text blocks, strip XML-like system tags, and trim
+  const raw = texts.join("\n");
+  const cleaned = raw
+    .replace(/<(?:system-reminder|local-command-caveat|ide_opened_file|ide_selection|ide_diagnostics|command-name|command-message|command-args|local-command-stdout|available-deferred-tools)>[\s\S]*?<\/(?:system-reminder|local-command-caveat|ide_opened_file|ide_selection|ide_diagnostics|command-name|command-message|command-args|local-command-stdout|available-deferred-tools)>/g, "")
+    .replace(/<(?:ide_opened_file|ide_selection|local-command-stdout)[^>]*\/>/g, "")
+    .trim();
+
+  // Return null if nothing meaningful remains
+  if (!cleaned || cleaned.length < 2) return null;
+  // Cap at 2000 chars to avoid storing huge tool results that leak through
+  return cleaned.length > 2000 ? cleaned.slice(0, 2000) : cleaned;
+}
+
+/**
+ * Detect IDE entrypoint from user message content.
+ * VS Code / IDE sessions include system-injected tags like ide_selection,
+ * ide_opened_file, or "VSCode Extension Context" in the prompt content.
+ * Returns "vscode" when IDE signals are found, null otherwise.
+ */
+function detectIdeEntrypoint(content: string | import("../types.js").ContentBlock[] | undefined): string | null {
+  if (!content) return null;
+
+  const texts: string[] = [];
+  if (typeof content === "string") {
+    texts.push(content);
+  } else if (Array.isArray(content)) {
+    for (const b of content) {
+      if (b.type === "text" && b.text) texts.push(b.text);
+    }
+  }
+
+  const raw = texts.join("\n");
+
+  if (
+    raw.includes("<ide_selection") ||
+    raw.includes("<ide_opened_file") ||
+    raw.includes("<ide_diagnostics") ||
+    raw.includes("VSCode Extension Context") ||
+    raw.includes("VSCode native extension")
+  ) {
+    return "vscode";
+  }
+
+  return null;
 }
 
 function isValidJson(s: string): boolean {

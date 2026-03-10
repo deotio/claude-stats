@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { lookupPricing, estimateCost, formatCost } from "../pricing.js";
+import { lookupPricing, estimateCost, formatCost, lookupPlanFee } from "../pricing.js";
 import { printSummary } from "../reporter/index.js";
 import { Store } from "../store/index.js";
 import os from "os";
@@ -9,24 +9,31 @@ import fs from "fs";
 // ── lookupPricing ────────────────────────────────────────────────────────────
 
 describe("lookupPricing", () => {
-  it("matches claude-opus-4-6 to claude-opus-4 entry", () => {
+  it("matches claude-opus-4-6 exactly", () => {
     const p = lookupPricing("claude-opus-4-6");
+    expect(p).not.toBeNull();
+    expect(p!.inputPerMillion).toBe(5);
+    expect(p!.outputPerMillion).toBe(25);
+  });
+
+  it("matches claude-opus-4 (legacy) with correct pricing", () => {
+    const p = lookupPricing("claude-opus-4-20250514");
     expect(p).not.toBeNull();
     expect(p!.inputPerMillion).toBe(15);
     expect(p!.outputPerMillion).toBe(75);
   });
 
-  it("matches claude-sonnet-4-6 to claude-sonnet-4 entry", () => {
+  it("matches claude-sonnet-4-6 exactly", () => {
     const p = lookupPricing("claude-sonnet-4-6");
     expect(p).not.toBeNull();
     expect(p!.inputPerMillion).toBe(3);
     expect(p!.outputPerMillion).toBe(15);
   });
 
-  it("matches claude-haiku-4 exactly", () => {
-    const p = lookupPricing("claude-haiku-4");
+  it("matches claude-haiku-4-5 exactly", () => {
+    const p = lookupPricing("claude-haiku-4-5");
     expect(p).not.toBeNull();
-    expect(p!.inputPerMillion).toBe(0.8);
+    expect(p!.inputPerMillion).toBe(1);
   });
 
   it("matches claude-3-5-sonnet-20241022 to claude-3-5-sonnet entry", () => {
@@ -44,16 +51,16 @@ describe("lookupPricing", () => {
 // ── estimateCost ─────────────────────────────────────────────────────────────
 
 describe("estimateCost", () => {
-  it("computes cost for 1M input tokens on opus", () => {
+  it("computes cost for 1M input tokens on opus 4.6", () => {
     const result = estimateCost("claude-opus-4-6", 1_000_000, 0, 0, 0);
     expect(result.known).toBe(true);
-    expect(result.cost).toBe(15);
+    expect(result.cost).toBe(5);
   });
 
-  it("computes cost for 1M output tokens on opus", () => {
+  it("computes cost for 1M output tokens on opus 4.6", () => {
     const result = estimateCost("claude-opus-4-6", 0, 1_000_000, 0, 0);
     expect(result.known).toBe(true);
-    expect(result.cost).toBe(75);
+    expect(result.cost).toBe(25);
   });
 
   it("computes cost for cache tokens on sonnet", () => {
@@ -62,10 +69,11 @@ describe("estimateCost", () => {
     expect(result.cost).toBeCloseTo(0.3 + 3.75);
   });
 
-  it("combines all token types", () => {
+  it("combines all token types on opus 4.6", () => {
     const result = estimateCost("claude-opus-4-6", 1_000_000, 1_000_000, 1_000_000, 1_000_000);
     expect(result.known).toBe(true);
-    expect(result.cost).toBeCloseTo(15 + 75 + 1.5 + 18.75);
+    // $5 input + $25 output + $0.50 cache read + $6.25 cache write
+    expect(result.cost).toBeCloseTo(5 + 25 + 0.50 + 6.25);
   });
 
   it("returns zero cost and known=false for unknown model", () => {
@@ -99,6 +107,39 @@ describe("formatCost", () => {
   it("rounds to two decimal places", () => {
     expect(formatCost(0.001)).toBe("$0.00");
     expect(formatCost(0.005)).toBe("$0.01");
+  });
+});
+
+// ── lookupPlanFee ────────────────────────────────────────────────────────────
+
+describe("lookupPlanFee", () => {
+  it("returns fee for exact match", () => {
+    expect(lookupPlanFee("pro")).toBe(20);
+    expect(lookupPlanFee("max_5x")).toBe(100);
+    expect(lookupPlanFee("max_20x")).toBe(200);
+    expect(lookupPlanFee("team")).toBe(25);
+    expect(lookupPlanFee("team_standard")).toBe(25);
+    expect(lookupPlanFee("team_premium")).toBe(150);
+  });
+
+  it("normalizes case and separators", () => {
+    expect(lookupPlanFee("Pro")).toBe(20);
+    expect(lookupPlanFee("MAX-5X")).toBe(100);
+    expect(lookupPlanFee("Max 20x")).toBe(200);
+    expect(lookupPlanFee("Team-Premium")).toBe(150);
+  });
+
+  it("matches by prefix for variants", () => {
+    expect(lookupPlanFee("pro_annual")).toBe(20);
+    expect(lookupPlanFee("max_5x_monthly")).toBe(100);
+    expect(lookupPlanFee("team_premium_annual")).toBe(150);
+  });
+
+  it("returns null for unknown types", () => {
+    expect(lookupPlanFee("enterprise")).toBeNull();
+    expect(lookupPlanFee("free")).toBeNull();
+    expect(lookupPlanFee("")).toBeNull();
+    expect(lookupPlanFee(null)).toBeNull();
   });
 });
 
@@ -172,6 +213,7 @@ describe("printSummary cost line", () => {
         inferenceGeo: null,
         ephemeral5mCacheTokens: 0,
         ephemeral1hCacheTokens: 0,
+        promptText: null,
       },
       {
         uuid: "m-cost-2",
@@ -190,6 +232,7 @@ describe("printSummary cost line", () => {
         inferenceGeo: null,
         ephemeral5mCacheTokens: 0,
         ephemeral1hCacheTokens: 0,
+        promptText: null,
       },
     ]);
 
@@ -201,8 +244,8 @@ describe("printSummary cost line", () => {
     const costCall = calls.find(s => s.includes("Cost"));
     expect(costCall).toBeDefined();
     expect(costCall).toContain("equivalent API cost");
-    // 1M input on opus = $15, 100K output = $7.50 → $22.50
-    expect(costCall).toContain("$22.50");
+    // 1M input on opus 4.6 = $5, 100K output = $2.50 → $7.50
+    expect(costCall).toContain("$7.50");
   });
 
   it("shows unknown model warning when model is not in pricing table", () => {
@@ -256,6 +299,7 @@ describe("printSummary cost line", () => {
         inferenceGeo: null,
         ephemeral5mCacheTokens: 0,
         ephemeral1hCacheTokens: 0,
+        promptText: null,
       },
     ]);
 

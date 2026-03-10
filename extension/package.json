@@ -29,16 +29,11 @@
       "claude-stats": [
         {
           "id": "claude-stats.dashboardView",
-          "name": "Dashboard"
+          "name": "Dashboard",
+          "type": "webview"
         }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "claude-stats.dashboardView",
-        "contents": "View your Claude Code usage statistics.\n[Open Dashboard](command:claude-stats.openDashboard)"
-      }
-    ],
     "commands": [
       {
         "command": "claude-stats.openDashboard",

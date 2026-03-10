@@ -11,6 +11,7 @@ import { Store } from "../store/index.js";
 import { buildDashboard } from "../dashboard/index.js";
 import { renderDashboard } from "../server/template.js";
 import type { ReportOptions } from "../reporter/index.js";
+import type { SidebarProvider } from "./sidebar.js";
 
 export class DashboardPanel {
   private static instance: DashboardPanel | undefined;
@@ -18,7 +19,9 @@ export class DashboardPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly disposables: vscode.Disposable[] = [];
   private period: ReportOptions["period"] = "all";
+  private activeTab: string = "overview";
   private readonly chartJsUri: vscode.Uri;
+  private readonly sidebar: SidebarProvider | undefined;
 
   /**
    * Refresh the currently visible dashboard panel (if any).
@@ -28,7 +31,7 @@ export class DashboardPanel {
     DashboardPanel.instance?.refresh();
   }
 
-  static createOrShow(context: vscode.ExtensionContext): void {
+  static createOrShow(context: vscode.ExtensionContext, sidebar?: SidebarProvider): void {
     if (DashboardPanel.instance) {
       DashboardPanel.instance.panel.reveal();
       return;
@@ -42,11 +45,12 @@ export class DashboardPanel {
       { enableScripts: true, localResourceRoots: [mediaUri] },
     );
 
-    DashboardPanel.instance = new DashboardPanel(panel, context);
+    DashboardPanel.instance = new DashboardPanel(panel, context, sidebar);
   }
 
-  private constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext) {
+  private constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext, sidebar?: SidebarProvider) {
     this.panel = panel;
+    this.sidebar = sidebar;
     this.chartJsUri = panel.webview.asWebviewUri(
       vscode.Uri.joinPath(context.extensionUri, "media", "chart.min.js"),
     );
@@ -54,7 +58,7 @@ export class DashboardPanel {
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 
     this.panel.webview.onDidReceiveMessage(
-      (msg: { command: string; period?: string }) => this.handleMessage(msg),
+      (msg: { command: string; period?: string; tab?: string }) => this.handleMessage(msg),
       null,
       this.disposables,
     );
@@ -73,18 +77,22 @@ export class DashboardPanel {
         html,
         this.panel.webview.cspSource,
         this.chartJsUri.toString(),
+        this.activeTab,
       );
     } finally {
       store.close();
     }
   }
 
-  private handleMessage(msg: { command: string; period?: string }): void {
+  private handleMessage(msg: { command: string; period?: string; tab?: string }): void {
     if (msg.command === "changePeriod" && msg.period) {
       this.period = msg.period as ReportOptions["period"];
       this.refresh();
     } else if (msg.command === "refresh") {
       this.refresh();
+    } else if (msg.command === "tabChanged" && msg.tab) {
+      this.activeTab = msg.tab;
+      this.sidebar?.setActiveTab(msg.tab);
     }
   }
 
@@ -113,7 +121,7 @@ function getNonce(): string {
  * 4. Remove inline event handlers (blocked by nonce CSP) and replace them
  *    with a nonce'd bridge script that uses addEventListener + postMessage.
  */
-export function patchForWebview(html: string, cspSource: string, chartJsUri: string): string {
+export function patchForWebview(html: string, cspSource: string, chartJsUri: string, activeTab?: string): string {
   const nonce = getNonce();
 
   // 1. Replace CDN script tag with local webview resource
@@ -140,7 +148,15 @@ export function patchForWebview(html: string, cspSource: string, chartJsUri: str
     `<head>\n  <meta http-equiv="Content-Security-Policy" content="${csp}">`,
   );
 
-  // 5. Inject bridge script that wires up VS Code messaging and event handlers
+  // 5. Set active tab so the main script restores the correct tab on refresh
+  if (activeTab) {
+    html = html.replace(
+      `<script nonce="${nonce}">window.__DASHBOARD__`,
+      `<script nonce="${nonce}">window.__ACTIVE_TAB__='${activeTab}';window.__DASHBOARD__`,
+    );
+  }
+
+  // 6. Inject bridge script that wires up VS Code messaging and event handlers
   const bridgeScript = `<script nonce="${nonce}">
 (function() {
   var vscode = acquireVsCodeApi();
@@ -175,6 +191,21 @@ export function patchForWebview(html: string, cspSource: string, chartJsUri: str
   window.toggleRefresh = function() {
     vscode.postMessage({ command: 'refresh' });
   };
+
+  // Notify extension when dashboard tab changes (for sidebar context)
+  var tabBtns = document.querySelectorAll('.tab-btn');
+  tabBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var tab = this.getAttribute('data-tab');
+      if (tab) vscode.postMessage({ command: 'tabChanged', tab: tab });
+    });
+  });
+  // Also send initial tab on load
+  var activeTab = document.querySelector('.tab-btn.active');
+  if (activeTab) {
+    var tab = activeTab.getAttribute('data-tab');
+    if (tab) vscode.postMessage({ command: 'tabChanged', tab: tab });
+  }
 })();
 </script>`;
   html = html.replace("</body>", `${bridgeScript}\n</body>`);

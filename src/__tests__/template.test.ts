@@ -90,6 +90,10 @@ const mockData: DashboardData = {
   byHour: [],
   byWindow: [],
   byConversationCost: [],
+  byWeek: [],
+  planUtilization: null,
+  modelEfficiency: null,
+  contextAnalysis: null,
 };
 
 describe("renderDashboard", () => {
@@ -271,5 +275,211 @@ describe("renderDashboard", () => {
     const html = renderDashboard(mockData);
     expect(html).not.toContain('id="chart-windows"');
     expect(html).not.toContain('id="chart-conv-cost"');
+  });
+
+  it("includes pricing panel with model rates", () => {
+    const html = renderDashboard(mockData);
+    expect(html).toContain('id="pricing-panel"');
+    expect(html).toContain("Token Pricing");
+    expect(html).toContain("claude-opus-4");
+    expect(html).toContain("claude-sonnet-4");
+    expect(html).toContain("claude-haiku-4");
+    expect(html).toContain("$15"); // opus input
+    expect(html).toContain("$75"); // opus output
+  });
+
+  it("includes pricing source attribution", () => {
+    const html = renderDashboard(mockData);
+    expect(html).toContain("Anthropic API pricing");
+    expect(html).toContain("last updated");
+    expect(html).toContain("equivalent API rates");
+  });
+
+  it("includes pricing panel visibility toggle in switchTab JS", () => {
+    const html = renderDashboard(mockData);
+    expect(html).toContain("costTabs");
+    expect(html).toContain("pricing-panel");
+    expect(html).toContain("pricingPanel");
+  });
+
+  it("includes Plan tab button", () => {
+    const html = renderDashboard(mockData);
+    expect(html).toContain('data-tab="plan"');
+    expect(html).toContain(">Plan<");
+  });
+
+  it("renders Plan tab with no-data message when planUtilization is null", () => {
+    const html = renderDashboard(mockData);
+    expect(html).toContain('id="tab-plan"');
+    expect(html).toContain("Not enough usage data");
+  });
+
+  it("renders Plan tab with utilization data when present", () => {
+    const withPlanUtil: DashboardData = {
+      ...mockData,
+      summary: { ...mockData.summary, planFee: 100, planMultiplier: 2.5 },
+      byWeek: [
+        { week: "2026-01-13", sessions: 10, prompts: 50, estimatedCost: 25.0, activeHoursEstimate: 5.0, windowCount: 3, throttledWindows: 0 },
+      ],
+      planUtilization: {
+        weeklyPlanBudget: 23.09,
+        avgWeeklyCost: 25.0,
+        peakWeeklyCost: 25.0,
+        weeksBelowPlan: 0,
+        weeksAbovePlan: 1,
+        totalWeeks: 1,
+        avgWindowCost: 8.33,
+        medianWindowCost: 8.33,
+        windowsPerWeek: 3.0,
+        throttledWindowPercent: 0,
+        totalWindows: 3,
+        recommendedPlan: "max5",
+        currentPlanVerdict: "good-value",
+        byAccount: [],
+      },
+    };
+    const html = renderDashboard(withPlanUtil);
+    expect(html).toContain("Plan Verdict");
+    expect(html).toContain("Good Value");
+    expect(html).toContain("Suggested Plan");
+    expect(html).toContain("Max 5x");
+    expect(html).toContain("Avg Weekly Value");
+    expect(html).toContain('id="chart-weekly-plan"');
+  });
+
+  it("renders underusing verdict when utilization is low", () => {
+    const underusing: DashboardData = {
+      ...mockData,
+      summary: { ...mockData.summary, planFee: 200, planMultiplier: 0.3 },
+      byWeek: [
+        { week: "2026-01-13", sessions: 2, prompts: 5, estimatedCost: 3.0, activeHoursEstimate: 0.5, windowCount: 1, throttledWindows: 0 },
+      ],
+      planUtilization: {
+        weeklyPlanBudget: 46.19,
+        avgWeeklyCost: 3.0,
+        peakWeeklyCost: 3.0,
+        weeksBelowPlan: 1,
+        weeksAbovePlan: 0,
+        totalWeeks: 1,
+        avgWindowCost: 3.0,
+        medianWindowCost: 3.0,
+        windowsPerWeek: 1.0,
+        throttledWindowPercent: 0,
+        totalWindows: 1,
+        recommendedPlan: "pro",
+        currentPlanVerdict: "underusing",
+        byAccount: [],
+      },
+    };
+    const html = renderDashboard(underusing);
+    expect(html).toContain("Underusing");
+  });
+
+  it("renders throttled windows in plan tab when present", () => {
+    const withThrottled: DashboardData = {
+      ...mockData,
+      summary: { ...mockData.summary, planFee: 100, planMultiplier: 1.5 },
+      byWeek: [
+        { week: "2026-01-13", sessions: 10, prompts: 50, estimatedCost: 30.0, activeHoursEstimate: 8.0, windowCount: 5, throttledWindows: 2 },
+      ],
+      planUtilization: {
+        weeklyPlanBudget: 23.09,
+        avgWeeklyCost: 30.0,
+        peakWeeklyCost: 30.0,
+        weeksBelowPlan: 0,
+        weeksAbovePlan: 1,
+        totalWeeks: 1,
+        avgWindowCost: 6.0,
+        medianWindowCost: 6.0,
+        windowsPerWeek: 5.0,
+        throttledWindowPercent: 40.0,
+        totalWindows: 5,
+        recommendedPlan: "max5",
+        currentPlanVerdict: "good-value",
+        byAccount: [],
+      },
+    };
+    const html = renderDashboard(withThrottled);
+    expect(html).toContain("Throttled Windows");
+    expect(html).toContain("40%");
+  });
+
+  it("renders multi-account breakdown when multiple accounts present", () => {
+    const multiAcct: DashboardData = {
+      ...mockData,
+      summary: { ...mockData.summary, planFee: 0, planMultiplier: 0 },
+      byWeek: [
+        { week: "2026-01-13", sessions: 10, prompts: 50, estimatedCost: 25.0, activeHoursEstimate: 5.0, windowCount: 3, throttledWindows: 0 },
+      ],
+      planUtilization: {
+        weeklyPlanBudget: 27.71,
+        avgWeeklyCost: 25.0,
+        peakWeeklyCost: 25.0,
+        weeksBelowPlan: 0,
+        weeksAbovePlan: 1,
+        totalWeeks: 1,
+        avgWindowCost: 8.33,
+        medianWindowCost: 8.33,
+        windowsPerWeek: 3.0,
+        throttledWindowPercent: 0,
+        totalWindows: 3,
+        recommendedPlan: "max5",
+        currentPlanVerdict: "good-value",
+        byAccount: [
+          { accountId: "acct-wor...", subscriptionType: "max_5x", detectedPlanFee: 100, sessions: 7, estimatedCost: 20.0, planVerdict: "underusing" },
+          { accountId: "acct-per...", subscriptionType: "pro", detectedPlanFee: 20, sessions: 3, estimatedCost: 5.0, planVerdict: "underusing" },
+        ],
+      },
+    };
+    const html = renderDashboard(multiAcct);
+    expect(html).toContain("2 accounts detected");
+    expect(html).toContain("acct-wor...");
+    expect(html).toContain("acct-per...");
+    expect(html).toContain("max_5x");
+    expect(html).toContain("auto-detected");
+  });
+
+  it("shows auto-detected fee source when no manual planFee", () => {
+    const autoDetected: DashboardData = {
+      ...mockData,
+      summary: { ...mockData.summary, planFee: 0, planMultiplier: 0 },
+      byWeek: [
+        { week: "2026-01-13", sessions: 5, prompts: 20, estimatedCost: 15.0, activeHoursEstimate: 3.0, windowCount: 2, throttledWindows: 0 },
+      ],
+      planUtilization: {
+        weeklyPlanBudget: 4.62,
+        avgWeeklyCost: 15.0,
+        peakWeeklyCost: 15.0,
+        weeksBelowPlan: 0,
+        weeksAbovePlan: 1,
+        totalWeeks: 1,
+        avgWindowCost: 7.5,
+        medianWindowCost: 7.5,
+        windowsPerWeek: 2.0,
+        throttledWindowPercent: 0,
+        totalWindows: 2,
+        recommendedPlan: "pro",
+        currentPlanVerdict: "good-value",
+        byAccount: [{ accountId: "acct-111...", subscriptionType: "pro", detectedPlanFee: 20, sessions: 5, estimatedCost: 15.0, planVerdict: "good-value" }],
+      },
+    };
+    const html = renderDashboard(autoDetected);
+    expect(html).toContain("auto-detected");
+    expect(html).toContain("$20/mo");
+  });
+
+  it("includes efficiency tab button when modelEfficiency is present", () => {
+    const withEff: DashboardData = {
+      ...mockData,
+      modelEfficiency: {
+        byModelAndTier: [],
+        summary: { totalMessages: 10, classifiedMessages: 8, totalCost: 1.0, potentialSavings: 0.5, overusePercent: 25 },
+        opusScoreDistribution: [],
+        topOveruse: [],
+      },
+    };
+    const html = renderDashboard(withEff);
+    expect(html).toContain('data-tab="efficiency"');
+    expect(html).toContain("Potential Savings");
   });
 });

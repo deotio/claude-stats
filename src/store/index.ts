@@ -20,7 +20,7 @@ import type {
 } from "../types.js";
 import { estimateCost } from "../pricing.js";
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 export class Store {
   private db: DatabaseSync;
@@ -60,6 +60,7 @@ export class Store {
     if (current < 5) this.migrateToV5();
     if (current < 6) this.migrateToV6();
     if (current < 7) this.migrateToV7();
+    if (current < 8) this.migrateToV8();
 
     this.db
       .prepare("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)")
@@ -224,6 +225,17 @@ export class Store {
     `);
   }
 
+  private migrateToV8(): void {
+    const addColumn = (table: string, column: string, def: string): void => {
+      const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      if (!cols.some((c) => c.name === column)) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+      }
+    };
+    // Store user prompt text paired with assistant messages for model efficiency analysis
+    addColumn("messages", "prompt_text", "TEXT");
+  }
+
   // ─── Transaction wrapper ────────────────────────────────────────────────────
 
   transaction<T>(fn: () => T): T {
@@ -256,6 +268,7 @@ export class Store {
       ON CONFLICT (session_id) DO UPDATE SET
         last_timestamp          = excluded.last_timestamp,
         claude_version          = excluded.claude_version,
+        entrypoint              = COALESCE(excluded.entrypoint, sessions.entrypoint),
         is_interactive          = excluded.is_interactive,
         prompt_count            = excluded.prompt_count,
         assistant_message_count = excluded.assistant_message_count,
@@ -335,6 +348,7 @@ export class Store {
       ON CONFLICT (session_id) DO UPDATE SET
         last_timestamp          = MAX(sessions.last_timestamp, excluded.last_timestamp),
         claude_version          = excluded.claude_version,
+        entrypoint              = COALESCE(excluded.entrypoint, sessions.entrypoint),
         is_interactive          = MAX(sessions.is_interactive, excluded.is_interactive),
         prompt_count            = sessions.prompt_count + excluded.prompt_count,
         assistant_message_count = sessions.assistant_message_count + excluded.assistant_message_count,
@@ -398,8 +412,9 @@ export class Store {
         uuid, session_id, timestamp, claude_version, model, stop_reason,
         input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
         tools, thinking_blocks,
-        service_tier, inference_geo, ephemeral_5m_cache_tokens, ephemeral_1h_cache_tokens
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        service_tier, inference_geo, ephemeral_5m_cache_tokens, ephemeral_1h_cache_tokens,
+        prompt_text
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (uuid) DO UPDATE SET
         model                       = excluded.model,
         input_tokens                = excluded.input_tokens,
@@ -411,7 +426,8 @@ export class Store {
         service_tier                = excluded.service_tier,
         inference_geo               = excluded.inference_geo,
         ephemeral_5m_cache_tokens   = excluded.ephemeral_5m_cache_tokens,
-        ephemeral_1h_cache_tokens   = excluded.ephemeral_1h_cache_tokens
+        ephemeral_1h_cache_tokens   = excluded.ephemeral_1h_cache_tokens,
+        prompt_text                 = COALESCE(excluded.prompt_text, messages.prompt_text)
     `);
     for (const r of records) {
       stmt.run(
@@ -419,7 +435,8 @@ export class Store {
         r.model, r.stopReason, r.inputTokens, r.outputTokens,
         r.cacheCreationTokens, r.cacheReadTokens,
         JSON.stringify(r.tools), r.thinkingBlocks,
-        r.serviceTier, r.inferenceGeo, r.ephemeral5mCacheTokens, r.ephemeral1hCacheTokens
+        r.serviceTier, r.inferenceGeo, r.ephemeral5mCacheTokens, r.ephemeral1hCacheTokens,
+        r.promptText ?? null
       );
     }
   }
@@ -471,6 +488,13 @@ export class Store {
       firstKbHash: row["first_kb_hash"] as string,
       sourceDeleted: Boolean(row["source_deleted"]),
     }));
+  }
+
+  /** Reset all checkpoints to force a full re-parse on next collect.
+   *  Used for backfilling new fields (e.g. prompt_text). */
+  resetCheckpoints(): number {
+    const result = this.db.prepare("UPDATE collection_state SET last_offset = 0, last_mtime = 0").run();
+    return Number(result.changes);
   }
 
   markSourceDeleted(filePath: string): void {
@@ -801,6 +825,80 @@ export class Store {
     return results;
   }
 
+  /** Returns per-message details for model efficiency analysis. */
+  getMessagesForEfficiency(filters: {
+    projectPath?: string;
+    repoUrl?: string;
+    since?: number;
+  } = {}): EfficiencyMessageRow[] {
+    const conditions: string[] = ["m.model IS NOT NULL"];
+    const params: unknown[] = [];
+
+    if (filters.projectPath) {
+      conditions.push("s.project_path = ?");
+      params.push(filters.projectPath);
+    }
+    if (filters.repoUrl) {
+      conditions.push("s.repo_url = ?");
+      params.push(filters.repoUrl);
+    }
+    if (filters.since !== undefined) {
+      conditions.push("s.first_timestamp >= ?");
+      params.push(filters.since);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const sql = `
+      SELECT
+        m.uuid, m.session_id, m.timestamp, m.model,
+        m.input_tokens, m.output_tokens,
+        m.cache_read_tokens, m.cache_creation_tokens,
+        m.tools, m.thinking_blocks, m.prompt_text
+      FROM messages m
+      JOIN sessions s ON m.session_id = s.session_id
+      ${where}
+      ORDER BY m.timestamp ASC
+    `;
+    const stmt = this.db.prepare(sql);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (stmt.all as (...args: any[]) => unknown[])(...params) as EfficiencyMessageRow[];
+  }
+
+  getMessagesForContext(filters: {
+    projectPath?: string;
+    repoUrl?: string;
+    since?: number;
+  } = {}): ContextMessageRow[] {
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters.projectPath) {
+      conditions.push("s.project_path = ?");
+      params.push(filters.projectPath);
+    }
+    if (filters.repoUrl) {
+      conditions.push("s.repo_url = ?");
+      params.push(filters.repoUrl);
+    }
+    if (filters.since !== undefined) {
+      conditions.push("s.first_timestamp >= ?");
+      params.push(filters.since);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const sql = `
+      SELECT m.session_id, m.timestamp, m.input_tokens,
+             m.cache_read_tokens, m.cache_creation_tokens
+      FROM messages m
+      JOIN sessions s ON m.session_id = s.session_id
+      ${where}
+      ORDER BY m.session_id, m.timestamp ASC
+    `;
+    const stmt = this.db.prepare(sql);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (stmt.all as (...args: any[]) => unknown[])(...params) as ContextMessageRow[];
+  }
+
   getStatus(): StatusInfo {
     let dbSize = 0;
     try { dbSize = fs.statSync(paths.statsDb).size; } catch { /* ok */ }
@@ -870,6 +968,7 @@ export interface MessageRow {
   inference_geo: string | null;
   ephemeral_5m_cache_tokens: number;
   ephemeral_1h_cache_tokens: number;
+  prompt_text: string | null;
 }
 
 export interface SessionMessageTotalRow {
@@ -885,6 +984,28 @@ export interface MessageTotalRow {
   model: string;
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+}
+
+export interface EfficiencyMessageRow {
+  uuid: string;
+  session_id: string;
+  timestamp: number | null;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  tools: string; // JSON array
+  thinking_blocks: number;
+  prompt_text: string | null;
+}
+
+export interface ContextMessageRow {
+  session_id: string;
+  timestamp: number | null;
+  input_tokens: number;
   cache_read_tokens: number;
   cache_creation_tokens: number;
 }

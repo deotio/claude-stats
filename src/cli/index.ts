@@ -15,6 +15,7 @@ import { renderDashboard } from "../server/template.js";
 import { writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { startServer } from "../server/index.js";
+import { initPricingCache, loadCachedPricing } from "../pricing-cache.js";
 
 export function buildCli(): Command {
   const program = new Command();
@@ -29,6 +30,7 @@ export function buildCli(): Command {
     .description("Run incremental collection from ~/.claude/projects/")
     .option("-v, --verbose", "Show per-file progress")
     .action(async (opts: { verbose?: boolean }) => {
+      await initPricingCache();
       const store = new Store();
       try {
         console.log("Collecting...");
@@ -101,6 +103,7 @@ export function buildCli(): Command {
         tag?: string;
         html?: string | boolean;
       }) => {
+        loadCachedPricing();
         if (opts.html && (opts.trend || opts.detail)) {
           process.stderr.write("Cannot combine --html with --trend or --detail\n");
           process.exitCode = 1;
@@ -397,6 +400,28 @@ export function buildCli(): Command {
         for (const { tag, count } of tagCounts) {
           const label = count === 1 ? "session" : "sessions";
           console.log(`${tag.padEnd(20)} (${count} ${label})`);
+        }
+      } finally {
+        store.close();
+      }
+    });
+
+  program
+    .command("backfill")
+    .description("Re-parse all session files to backfill new fields (e.g. prompt_text)")
+    .option("-v, --verbose", "Show per-file progress")
+    .action(async (opts: { verbose?: boolean }) => {
+      const store = new Store();
+      try {
+        const count = store.resetCheckpoints();
+        console.log(`Reset ${count} file checkpoints. Running full re-collection...`);
+        const result = await collect(store, { verbose: opts.verbose });
+        console.log(
+          `Backfill complete. ${result.filesProcessed} files re-processed, ` +
+            `${result.messagesUpserted} messages updated.`
+        );
+        if (result.parseErrors > 0) {
+          console.warn(`⚠  ${result.parseErrors} parse errors quarantined.`);
         }
       } finally {
         store.close();

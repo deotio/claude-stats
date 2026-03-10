@@ -151,6 +151,7 @@ export interface MessageRecord {
   inferenceGeo: string | null;
   ephemeral5mCacheTokens: number;
   ephemeral1hCacheTokens: number;
+  promptText: string | null;
 }
 
 // ─── Collection state ─────────────────────────────────────────────────────────
